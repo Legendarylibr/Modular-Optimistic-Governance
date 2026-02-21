@@ -10,6 +10,7 @@ contract ParameterManager is IParameterManager, OwnableBootstrap {
     error GovernanceAlreadyInitialized();
     error InvalidThresholds();
     error InvalidSnapshotSpaceHash();
+    error InvalidSnapshotConfigHash();
 
     uint16 internal constant BPS_DENOMINATOR = 10_000;
     uint16 internal constant CONSTITUTION_MIN_QUORUM_BPS = 1_500;
@@ -36,6 +37,7 @@ contract ParameterManager is IParameterManager, OwnableBootstrap {
     uint64 public override emergencyPauseMaxDuration;
     uint256 public override proposalBond;
     bytes32 public override snapshotSpaceHash;
+    bytes32 public override snapshotConfigHash;
 
     mapping(address => bool) private _approvedTargets;
     mapping(address => bool) private _highImpactTargets;
@@ -61,6 +63,7 @@ contract ParameterManager is IParameterManager, OwnableBootstrap {
     event CompensationPoolSet(address indexed compensationPool);
     event BurnAddressSet(address indexed burnAddress);
     event SnapshotSpaceHashSet(bytes32 indexed snapshotSpaceHash);
+    event SnapshotConfigHashSet(bytes32 indexed snapshotConfigHash);
 
     modifier onlyGovernanceExecutor() {
         if (msg.sender != governanceExecutor) revert NotGovernanceExecutor();
@@ -73,10 +76,12 @@ contract ParameterManager is IParameterManager, OwnableBootstrap {
         address initialTreasury,
         address initialCompensationPool,
         address initialBurnAddress,
-        bytes32 initialSnapshotSpaceHash
+        bytes32 initialSnapshotSpaceHash,
+        bytes32 initialSnapshotConfigHash
     ) OwnableBootstrap(initialBootstrapOwner) {
         if (initialTreasury == address(0) || initialBurnAddress == address(0)) revert ZeroAddress();
         if (initialSnapshotSpaceHash == bytes32(0)) revert InvalidSnapshotSpaceHash();
+        if (initialSnapshotConfigHash == bytes32(0)) revert InvalidSnapshotConfigHash();
 
         _validateParams(initialParams);
 
@@ -84,9 +89,11 @@ contract ParameterManager is IParameterManager, OwnableBootstrap {
         compensationPool = initialCompensationPool;
         burnAddress = initialBurnAddress;
         snapshotSpaceHash = initialSnapshotSpaceHash;
+        snapshotConfigHash = initialSnapshotConfigHash;
 
         _setParams(initialParams);
         emit SnapshotSpaceHashSet(initialSnapshotSpaceHash);
+        emit SnapshotConfigHashSet(initialSnapshotConfigHash);
     }
 
     function isTargetApproved(address target) external view override returns (bool) {
@@ -157,6 +164,12 @@ contract ParameterManager is IParameterManager, OwnableBootstrap {
         if (newSnapshotSpaceHash == bytes32(0)) revert InvalidSnapshotSpaceHash();
         snapshotSpaceHash = newSnapshotSpaceHash;
         emit SnapshotSpaceHashSet(newSnapshotSpaceHash);
+    }
+
+    function setSnapshotConfigHash(bytes32 newSnapshotConfigHash) external override onlyGovernanceExecutor {
+        if (newSnapshotConfigHash == bytes32(0)) revert InvalidSnapshotConfigHash();
+        snapshotConfigHash = newSnapshotConfigHash;
+        emit SnapshotConfigHashSet(newSnapshotConfigHash);
     }
 
     function _setParams(GovernanceParams memory params) internal {

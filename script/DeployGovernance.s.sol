@@ -36,6 +36,7 @@ contract DeployGovernance {
         address compensationPool = vm.envAddress("COMPENSATION_POOL");
         address burnAddress = vm.envAddress("BURN_ADDRESS");
         bytes32 snapshotSpaceHash = vm.envBytes32("SNAPSHOT_SPACE_HASH");
+        bytes32 snapshotConfigHash = vm.envBytes32("SNAPSHOT_CONFIG_HASH");
 
         IParameterManager.GovernanceParams memory params = IParameterManager.GovernanceParams({
             proposalThresholdBps: uint16(vm.envUint("PROPOSAL_THRESHOLD_BPS")),
@@ -66,7 +67,8 @@ contract DeployGovernance {
             treasury,
             compensationPool,
             burnAddress,
-            snapshotSpaceHash
+            snapshotSpaceHash,
+            snapshotConfigHash
         );
 
         deployed.stakeManager = new StakeManager(

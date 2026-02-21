@@ -1,0 +1,19 @@
+[Unit]
+Description=Governance Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Update /path/to/repo to your checkout root.
+ExecStart=/path/to/repo/agent/run-agent.sh
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/path/to/repo/agent/state
+
+[Install]
+WantedBy=multi-user.target

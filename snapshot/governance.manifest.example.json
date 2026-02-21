@@ -1,0 +1,52 @@
+{
+  "$schema": "./governance-manifest.schema.json",
+  "version": 1,
+  "chainId": 1,
+  "snapshot": {
+    "space": "dao.snapshot.eth",
+    "spaceHash": "0x65590b8d8a5f763e49f4ff1a8bc355ba32bab2d48d544a0b16c1eafa6a9a7200",
+    "configHash": "0x81d35c71c258eebc7e4c884fedbeac8a993a5b7c49004e5a59f4478bbff712db",
+    "hubUrl": "https://hub.snapshot.org",
+    "strategy": {
+      "name": "contract-call",
+      "contract": "0x2222222222222222222222222222222222222222",
+      "method": "votingPowerAt(address,uint256)",
+      "quorumMethod": "totalStakedAt(uint256)",
+      "argsTemplate": [
+        "{address}",
+        "{snapshot}"
+      ]
+    },
+    "proposalValidation": {
+      "pluginKey": "governance_agent",
+      "requiredFields": [
+        "proposalId",
+        "salt",
+        "transactions",
+        "executionHash"
+      ]
+    }
+  },
+  "contracts": {
+    "parameterManager": "0x3333333333333333333333333333333333333333",
+    "stakeManager": "0x2222222222222222222222222222222222222222",
+    "oracleAdapter": "0x4444444444444444444444444444444444444444",
+    "governanceExecutor": "0x5555555555555555555555555555555555555555"
+  },
+  "governance": {
+    "proposalThresholdBps": 100,
+    "quorumBps": 1500,
+    "majorityBps": 5100,
+    "superMajorityBps": 6700,
+    "slashingQuorumBps": 2500,
+    "maxSlashingBps": 5000,
+    "oracleChallengeWindow": 172800,
+    "timelockDuration": 86400,
+    "slashingExecutionCooldown": 86400,
+    "proposalBond": "1000000000000000000"
+  },
+  "oracle": {
+    "attesterThreshold": 2,
+    "fallbackFinalizationDelay": 172800
+  }
+}

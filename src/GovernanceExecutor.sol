@@ -74,6 +74,83 @@ contract GovernanceExecutor is IGovernanceExecutor, ReentrancyGuard {
         override
         nonReentrant
     {
+        _executeBundle(proposalId, salt, txs);
+    }
+
+    function finalizeAndExecuteBundle(uint256 proposalId, bytes32 salt, Transaction[] calldata txs)
+        external
+        payable
+        override
+        nonReentrant
+    {
+        IOracleAdapter.SettlementView memory settlement = IOracleAdapter(oracleAdapter).getSettlement(proposalId);
+        if (!settlement.finalized) {
+            IOracleAdapter(oracleAdapter).finalizeResult(proposalId);
+        }
+        _executeBundle(proposalId, salt, txs);
+    }
+
+    function setOracleAdapter(address newOracleAdapter) external override onlySelf {
+        if (newOracleAdapter == address(0)) revert ZeroAddress();
+
+        address oldOracleAdapter = oracleAdapter;
+        oracleAdapter = newOracleAdapter;
+
+        emit OracleAdapterUpdated(oldOracleAdapter, newOracleAdapter);
+    }
+
+    function setParameterManager(address newParameterManager) external override onlySelf {
+        if (newParameterManager == address(0)) revert ZeroAddress();
+
+        address oldParameterManager = parameterManager;
+        parameterManager = newParameterManager;
+
+        emit ParameterManagerUpdated(oldParameterManager, newParameterManager);
+    }
+
+    function setEmergencyGuardian(address newEmergencyGuardian) external override onlySelf {
+        if (newEmergencyGuardian == address(0)) revert ZeroAddress();
+
+        address oldGuardian = emergencyGuardian;
+        emergencyGuardian = newEmergencyGuardian;
+        emit EmergencyGuardianUpdated(oldGuardian, newEmergencyGuardian);
+    }
+
+    function removeEmergencyGuardian() external override onlySelf {
+        address oldGuardian = emergencyGuardian;
+        emergencyGuardian = address(0);
+        emit EmergencyGuardianUpdated(oldGuardian, address(0));
+    }
+
+    function clearEmergencyPause() external override onlySelf {
+        emergencyPauseUntil = 0;
+        emit EmergencyPauseCleared();
+    }
+
+    function triggerEmergencyPause(uint64 duration) external override onlyEmergencyGuardian {
+        if (duration == 0 || duration > IParameterManager(parameterManager).emergencyPauseMaxDuration()) {
+            revert InvalidEmergencyDuration();
+        }
+
+        uint64 newPauseUntil = uint64(block.timestamp + duration);
+        if (newPauseUntil > emergencyPauseUntil) {
+            emergencyPauseUntil = newPauseUntil;
+            emit EmergencyPauseTriggered(msg.sender, newPauseUntil);
+        }
+    }
+
+    function _hashTransactions(Transaction[] calldata txs) internal pure returns (bytes memory encoded) {
+        uint256 length = txs.length;
+        bytes32[] memory txHashes = new bytes32[](length);
+
+        for (uint256 i = 0; i < length; ++i) {
+            txHashes[i] = keccak256(abi.encode(txs[i].target, txs[i].value, keccak256(txs[i].data)));
+        }
+
+        encoded = abi.encode(txHashes);
+    }
+
+    function _executeBundle(uint256 proposalId, bytes32 salt, Transaction[] calldata txs) internal {
         if (txs.length == 0) revert EmptyBundle();
         if (proposalExecuted[proposalId]) revert AlreadyExecuted();
 
@@ -113,10 +190,7 @@ contract GovernanceExecutor is IGovernanceExecutor, ReentrancyGuard {
 
         for (uint256 i = 0; i < length; ++i) {
             Transaction calldata txn = txs[i];
-            if (
-                txn.target != address(this)
-                    && !IParameterManager(parameterManager).isTargetApproved(txn.target)
-            ) {
+            if (txn.target != address(this) && !IParameterManager(parameterManager).isTargetApproved(txn.target)) {
                 revert TargetNotApproved(txn.target);
             }
 
@@ -127,58 +201,6 @@ contract GovernanceExecutor is IGovernanceExecutor, ReentrancyGuard {
         }
 
         emit BundleExecuted(proposalId, executionHash, msg.sender);
-    }
-
-    function setOracleAdapter(address newOracleAdapter) external override onlySelf {
-        if (newOracleAdapter == address(0)) revert ZeroAddress();
-
-        address oldOracleAdapter = oracleAdapter;
-        oracleAdapter = newOracleAdapter;
-
-        emit OracleAdapterUpdated(oldOracleAdapter, newOracleAdapter);
-    }
-
-    function setParameterManager(address newParameterManager) external override onlySelf {
-        if (newParameterManager == address(0)) revert ZeroAddress();
-
-        address oldParameterManager = parameterManager;
-        parameterManager = newParameterManager;
-
-        emit ParameterManagerUpdated(oldParameterManager, newParameterManager);
-    }
-
-    function setEmergencyGuardian(address newEmergencyGuardian) external override onlySelf {
-        address oldGuardian = emergencyGuardian;
-        emergencyGuardian = newEmergencyGuardian;
-        emit EmergencyGuardianUpdated(oldGuardian, newEmergencyGuardian);
-    }
-
-    function clearEmergencyPause() external override onlySelf {
-        emergencyPauseUntil = 0;
-        emit EmergencyPauseCleared();
-    }
-
-    function triggerEmergencyPause(uint64 duration) external override onlyEmergencyGuardian {
-        if (duration == 0 || duration > IParameterManager(parameterManager).emergencyPauseMaxDuration()) {
-            revert InvalidEmergencyDuration();
-        }
-
-        uint64 newPauseUntil = uint64(block.timestamp + duration);
-        if (newPauseUntil > emergencyPauseUntil) {
-            emergencyPauseUntil = newPauseUntil;
-            emit EmergencyPauseTriggered(msg.sender, newPauseUntil);
-        }
-    }
-
-    function _hashTransactions(Transaction[] calldata txs) internal pure returns (bytes memory encoded) {
-        uint256 length = txs.length;
-        bytes32[] memory txHashes = new bytes32[](length);
-
-        for (uint256 i = 0; i < length; ++i) {
-            txHashes[i] = keccak256(abi.encode(txs[i].target, txs[i].value, keccak256(txs[i].data)));
-        }
-
-        encoded = abi.encode(txHashes);
     }
 
     function _isHighImpactBundle(Transaction[] calldata txs) internal view returns (bool) {

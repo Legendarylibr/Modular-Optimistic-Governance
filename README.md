@@ -34,17 +34,17 @@ This repository implements a modular governance stack with off-chain Snapshot vo
 - Governance payloads can include calls to Safe contracts only if those contracts are allowlisted in `ParameterManager`.
 
 ## 2) Solidity Contracts
-- `/Users/libr/Downloads/Slashing dao structure/src/GovernanceExecutor.sol`
-- `/Users/libr/Downloads/Slashing dao structure/src/StakeManager.sol`
-- `/Users/libr/Downloads/Slashing dao structure/src/OracleAdapter.sol`
-- `/Users/libr/Downloads/Slashing dao structure/src/ParameterManager.sol`
+- `src/GovernanceExecutor.sol`
+- `src/StakeManager.sol`
+- `src/OracleAdapter.sol`
+- `src/ParameterManager.sol`
 
 ## 3) Interface Definitions
-- `/Users/libr/Downloads/Slashing dao structure/src/interfaces/IGovernanceExecutor.sol`
-- `/Users/libr/Downloads/Slashing dao structure/src/interfaces/IStakeManager.sol`
-- `/Users/libr/Downloads/Slashing dao structure/src/interfaces/IOracleAdapter.sol`
-- `/Users/libr/Downloads/Slashing dao structure/src/interfaces/IParameterManager.sol`
-- `/Users/libr/Downloads/Slashing dao structure/src/interfaces/IERC20.sol`
+- `src/interfaces/IGovernanceExecutor.sol`
+- `src/interfaces/IStakeManager.sol`
+- `src/interfaces/IOracleAdapter.sol`
+- `src/interfaces/IParameterManager.sol`
+- `src/interfaces/IERC20.sol`
 
 ## 4) Storage Layout Design
 
@@ -62,6 +62,9 @@ This repository implements a modular governance stack with off-chain Snapshot vo
   - `oracleChallengeWindow`
   - `timelockDuration`
   - `slashingExecutionCooldown`
+- Snapshot bindings:
+  - `snapshotSpaceHash`
+  - `snapshotConfigHash`
 - `_approvedTargets[target] => bool` execution allowlist.
 
 ### `StakeManager`
@@ -99,6 +102,7 @@ Each contract emits state transition events:
   - `GovernanceParamsUpdated`
   - `TargetApprovalSet`
   - `TreasurySet`, `CompensationPoolSet`, `BurnAddressSet`
+  - `SnapshotSpaceHashSet`, `SnapshotConfigHashSet`
 - `StakeManager`
   - `Staked`, `Unstaked`, `DelegateSet`
   - `StakeLockUpdated`, `GlobalVoteLockUpdated`
@@ -132,13 +136,37 @@ Each contract emits state transition events:
 2. Register on-chain proposal with the same block via `registerProposalWithSnapshot(...)`.
 3. Snapshot strategy reads voting power from `StakeManager.votingPowerAt(voter, snapshotBlock)`.
 4. Snapshot quorum reference can use `StakeManager.totalStakedAt(snapshotBlock)`.
-5. Oracle settlement submits `snapshotProposalHash`, `snapshotSpaceHash`, and `snapshotBlock` in `SnapshotResult`.
+5. Oracle settlement submits `snapshotProposalHash`, `snapshotSpaceHash`, `snapshotConfigHash`, and `snapshotBlock` in `SnapshotResult`.
 6. `OracleAdapter` verifies:
    - snapshot block matches registered proposal,
    - `totalStakedAtSnapshot` equals on-chain historical total at that block,
    - vote totals do not exceed snapshot supply,
    - snapshot space hash matches configured governance space,
+   - snapshot config hash matches committed `ParameterManager.snapshotConfigHash`,
    - metadata hash follows deterministic schema.
+
+### Snapshot alignment toolkit (new)
+Use the repo templates under `snapshot/`:
+- `snapshot/space-settings.example.json` (Snapshot space strategy baseline)
+- `snapshot/governance.manifest.example.json` (alignment manifest template)
+- `snapshot/governance-manifest.schema.json` (schema)
+- `snapshot/README.md` (workflow)
+
+Machine-check manifest + on-chain wiring:
+
+```bash
+cp snapshot/governance.manifest.example.json snapshot/governance.manifest.json
+node script/check-snapshot-manifest.mjs snapshot/governance.manifest.json --rpc-url "$RPC_URL"
+node script/build-snapshot-config-calldata.mjs snapshot/governance.manifest.json
+```
+
+The checker enforces:
+- `snapshot.spaceHash == keccak256(snapshot.space)`
+- `snapshot.configHash == keccak256(abi.encode(snapshot config fields))`
+- `snapshot.strategy.contract == contracts.stakeManager`
+- on-chain contract wiring consistency between `ParameterManager`, `StakeManager`, `OracleAdapter`, `GovernanceExecutor`
+- on-chain `ParameterManager.snapshotConfigHash()` equals manifest `snapshot.configHash`
+- on-chain governance/oracle params match manifest values
 
 ### 2-phase slashing flow
 1. **Phase 1: Notice proposal (`SlashNotice`)**
@@ -165,6 +193,7 @@ Each contract emits state transition events:
 - Oracle integrity:
   - Result hash is domain-separated and recomputed on propose.
   - Proposal execution hash must match registered hash in `StakeManager`.
+  - Snapshot config hash must match committed `ParameterManager.snapshotConfigHash`.
   - Challenge window blocks immediate finalization.
 - Slashing abuse limits:
   - Separate notice and slash phases.
@@ -186,7 +215,7 @@ Each contract emits state transition events:
 
 ## 9) Unit Test Plan Outline
 
-Implemented tests (`/Users/libr/Downloads/Slashing dao structure/test/GovernanceSystem.t.sol`):
+Implemented tests (`test/GovernanceSystem.t.sol`):
 - `testStandardProposalExecution`
 - `testReplayAndDoubleExecutionPrevention`
 - `testRejectsUnapprovedTargets`
@@ -217,9 +246,32 @@ If upgradeability is required:
 - Build: `forge build`
 - Test (offline mode to avoid external signature lookups): `forge test --offline`
 
+## Governance Agent
+
+An optional policy-driven governance agent is included at:
+- `agent/governance_agent.mjs`
+
+It automates:
+- Snapshot closed proposal monitoring,
+- Oracle settlement submit/propose/challenge/attest actions,
+- Permissionless finalization and execution with `finalizeAndExecuteBundle`.
+- Optional constrained AI advisory summaries (non-authoritative, policy/rule checks stay authoritative).
+
+Agent docs and config examples:
+- `agent/README.md`
+- `agent/policy.example.json`
+- `agent/.env.example`
+- `agent/docker-compose.yml`
+- `agent/manager_api.mjs`
+- `agent/run-manager.sh`
+- `agent/governance-agent.service`
+- `agent/governance-agent-manager.service`
+- `agent/com.governance.agent.plist`
+- `agent/com.governance.agent.manager.plist`
+
 ## Deployment Script
 
-Script: `/Users/libr/Downloads/Slashing dao structure/script/DeployGovernance.s.sol`
+Script: `script/DeployGovernance.s.sol`
 
 Required environment variables:
 - `DEPLOYER_PRIVATE_KEY`
@@ -228,6 +280,7 @@ Required environment variables:
 - `COMPENSATION_POOL`
 - `BURN_ADDRESS`
 - `SNAPSHOT_SPACE_HASH`
+- `SNAPSHOT_CONFIG_HASH`
 - `PROPOSAL_THRESHOLD_BPS`
 - `QUORUM_BPS`
 - `MAJORITY_BPS`
@@ -255,7 +308,7 @@ forge script script/DeployGovernance.s.sol:DeployGovernance \
 
 ## Safe Fork Harness
 
-Fork harness test: `/Users/libr/Downloads/Slashing dao structure/test/fork/SafeModuleFork.t.sol`
+Fork harness test: `test/fork/SafeModuleFork.t.sol`
 
 Required environment variables:
 - `FORK_RPC_URL`

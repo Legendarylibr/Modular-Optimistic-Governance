@@ -1,0 +1,29 @@
+{
+  "space": "dao.snapshot.eth",
+  "snapshotPluginKey": "governance_agent",
+  "snapshotScoreDecimals": 18,
+  "closedProposalLookback": 20,
+  "pollIntervalSeconds": 30,
+  "choices": {
+    "for": 1,
+    "against": 2,
+    "abstain": 3
+  },
+  "operations": {
+    "submitResultHash": true,
+    "proposeResult": true,
+    "attest": true,
+    "challenge": true,
+    "finalize": true,
+    "execute": true
+  },
+  "safety": {
+    "maxTransactionsPerProposal": 20,
+    "maxBundleEthValueWei": "100000000000000000000",
+    "requireExecutionHashMatch": true
+  },
+  "ai": {
+    "enabled": false,
+    "model": "gpt-4o-mini"
+  }
+}

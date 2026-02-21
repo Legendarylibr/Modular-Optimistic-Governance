@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/modular-governance/snapshot/governance-manifest.schema.json",
+  "title": "Snapshot Governance Alignment Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "chainId",
+    "snapshot",
+    "contracts",
+    "governance",
+    "oracle"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "chainId": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "space",
+        "spaceHash",
+        "configHash",
+        "hubUrl",
+        "strategy",
+        "proposalValidation"
+      ],
+      "properties": {
+        "space": {
+          "type": "string",
+          "minLength": 1
+        },
+        "spaceHash": {
+          "type": "string",
+          "pattern": "^0x[a-fA-F0-9]{64}$"
+        },
+        "configHash": {
+          "type": "string",
+          "pattern": "^0x[a-fA-F0-9]{64}$"
+        },
+        "hubUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "strategy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "contract",
+            "method",
+            "quorumMethod",
+            "argsTemplate"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "contract-call"
+            },
+            "contract": {
+              "type": "string",
+              "pattern": "^0x[a-fA-F0-9]{40}$"
+            },
+            "method": {
+              "type": "string",
+              "const": "votingPowerAt(address,uint256)"
+            },
+            "quorumMethod": {
+              "type": "string",
+              "const": "totalStakedAt(uint256)"
+            },
+            "argsTemplate": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "proposalValidation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pluginKey",
+            "requiredFields"
+          ],
+          "properties": {
+            "pluginKey": {
+              "type": "string",
+              "minLength": 1
+            },
+            "requiredFields": {
+              "type": "array",
+              "minItems": 4,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "contracts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parameterManager",
+        "stakeManager",
+        "oracleAdapter",
+        "governanceExecutor"
+      ],
+      "properties": {
+        "parameterManager": {
+          "type": "string",
+          "pattern": "^0x[a-fA-F0-9]{40}$"
+        },
+        "stakeManager": {
+          "type": "string",
+          "pattern": "^0x[a-fA-F0-9]{40}$"
+        },
+        "oracleAdapter": {
+          "type": "string",
+          "pattern": "^0x[a-fA-F0-9]{40}$"
+        },
+        "governanceExecutor": {
+          "type": "string",
+          "pattern": "^0x[a-fA-F0-9]{40}$"
+        }
+      }
+    },
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposalThresholdBps",
+        "quorumBps",
+        "majorityBps",
+        "superMajorityBps",
+        "slashingQuorumBps",
+        "maxSlashingBps",
+        "oracleChallengeWindow",
+        "timelockDuration",
+        "slashingExecutionCooldown",
+        "proposalBond"
+      ],
+      "properties": {
+        "proposalThresholdBps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "quorumBps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "majorityBps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "superMajorityBps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "slashingQuorumBps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "maxSlashingBps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "oracleChallengeWindow": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timelockDuration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "slashingExecutionCooldown": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "proposalBond": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        }
+      }
+    },
+    "oracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attesterThreshold",
+        "fallbackFinalizationDelay"
+      ],
+      "properties": {
+        "attesterThreshold": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fallbackFinalizationDelay": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

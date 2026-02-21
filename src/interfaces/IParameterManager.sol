@@ -35,6 +35,7 @@ interface IParameterManager {
     function emergencyPauseMaxDuration() external view returns (uint64);
     function proposalBond() external view returns (uint256);
     function snapshotSpaceHash() external view returns (bytes32);
+    function snapshotConfigHash() external view returns (bytes32);
 
     function isTargetApproved(address target) external view returns (bool);
     function isHighImpactTarget(address target) external view returns (bool);
@@ -47,4 +48,5 @@ interface IParameterManager {
     function setCompensationPool(address newCompensationPool) external;
     function setBurnAddress(address newBurnAddress) external;
     function setSnapshotSpaceHash(bytes32 newSnapshotSpaceHash) external;
+    function setSnapshotConfigHash(bytes32 newSnapshotConfigHash) external;
 }

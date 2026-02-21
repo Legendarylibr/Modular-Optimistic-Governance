@@ -1,0 +1,66 @@
+{
+  "name": "Modular Governance DAO",
+  "network": "1",
+  "symbol": "GOV",
+  "private": false,
+  "about": "Snapshot space for stake-based governance settled on-chain through optimistic oracle + executor.",
+  "admins": [
+    "0x1111111111111111111111111111111111111111"
+  ],
+  "members": [],
+  "plugins": {},
+  "validation": {
+    "name": "basic",
+    "params": {}
+  },
+  "filters": {
+    "minScore": 0,
+    "onlyMembers": false
+  },
+  "strategies": [
+    {
+      "name": "contract-call",
+      "network": "1",
+      "params": {
+        "address": "0x2222222222222222222222222222222222222222",
+        "symbol": "stGOV",
+        "decimals": 18,
+        "methodABI": {
+          "name": "votingPowerAt",
+          "type": "function",
+          "stateMutability": "view",
+          "inputs": [
+            {
+              "name": "voter",
+              "type": "address"
+            },
+            {
+              "name": "snapshotBlock",
+              "type": "uint256"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "power",
+              "type": "uint256"
+            }
+          ]
+        },
+        "args": [
+          "{address}",
+          "{snapshot}"
+        ]
+      }
+    }
+  ],
+  "notes": {
+    "quorum_source": "Use StakeManager.totalStakedAt(snapshotBlock) when setting Snapshot proposal quorum.",
+    "required_plugin_payload_fields": [
+      "proposalId",
+      "salt",
+      "transactions",
+      "executionHash"
+    ],
+    "recommended_snapshot_plugin_key": "governance_agent"
+  }
+}

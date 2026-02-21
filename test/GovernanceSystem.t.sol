@@ -40,6 +40,7 @@ contract GovernanceSystemTest {
     bytes32 internal constant SALT_A = keccak256("salt-a");
     bytes32 internal constant SALT_B = keccak256("salt-b");
     bytes32 internal constant SNAPSHOT_SPACE_HASH = keccak256("dao.snapshot.eth");
+    bytes32 internal constant SNAPSHOT_CONFIG_HASH = keccak256("snapshot-config:v1");
 
     function setUp() public {
         token = new MockERC20("Gov", "GOV");
@@ -60,7 +61,8 @@ contract GovernanceSystemTest {
             proposalBond: 1_000 ether
         });
 
-        parameterManager = new ParameterManager(address(this), config, TREASURY, COMP_POOL, BURN, SNAPSHOT_SPACE_HASH);
+        parameterManager =
+            new ParameterManager(address(this), config, TREASURY, COMP_POOL, BURN, SNAPSHOT_SPACE_HASH, SNAPSHOT_CONFIG_HASH);
         stakeManager = new StakeManager(address(this), address(token), address(parameterManager));
         address[] memory initialAttesters = new address[](1);
         initialAttesters[0] = address(this);
@@ -124,6 +126,57 @@ contract GovernanceSystemTest {
         require(ok, "execution failed");
 
         require(target.number() == 42, "target state mismatch");
+        require(executor.proposalExecuted(proposalId), "proposal not marked executed");
+    }
+
+    function testFinalizeAndExecuteBundleTrustlessPath() public {
+        uint256 proposalId = stakeManager.proposalCount() + 1;
+
+        IGovernanceExecutor.Transaction[] memory txs = new IGovernanceExecutor.Transaction[](1);
+        txs[0] = IGovernanceExecutor.Transaction({
+            target: address(target),
+            value: 0,
+            data: abi.encodeWithSelector(MockTarget.setNumber.selector, 222, bytes32("auto"))
+        });
+
+        bytes32 executionHash = executor.computeExecutionHash(proposalId, SALT_A, txs);
+
+        vm.prank(ALICE);
+        stakeManager.registerProposal(
+            executionHash,
+            uint64(block.timestamp),
+            uint64(block.timestamp + 1 days),
+            IStakeManager.ProposalType.Standard,
+            address(0),
+            0
+        );
+
+        IStakeManager.ProposalView memory proposal = stakeManager.getProposal(proposalId);
+        vm.warp(proposal.voteEnd);
+
+        IOracleAdapter.SnapshotResult memory result = IOracleAdapter.SnapshotResult({
+            proposalId: proposalId,
+            executionHash: executionHash,
+            snapshotProposalHash: keccak256(abi.encodePacked("snapshot-proposal:", proposalId)),
+            snapshotSpaceHash: SNAPSHOT_SPACE_HASH,
+            snapshotConfigHash: SNAPSHOT_CONFIG_HASH,
+            snapshotBlock: proposal.snapshotBlock,
+            forVotes: 600_000 ether,
+            againstVotes: 80_000 ether,
+            abstainVotes: 10_000 ether,
+            totalStakedAtSnapshot: uint128(stakeManager.totalStakedAt(proposal.snapshotBlock)),
+            passed: true,
+            metadataHash: _metadataHash(proposalId, proposal.snapshotBlock, executionHash)
+        });
+
+        bytes32 resultHash = oracleAdapter.hashSnapshotResult(result);
+        oracleAdapter.submitResultHash(proposalId, resultHash);
+        oracleAdapter.proposeResult(result);
+        oracleAdapter.attestResult(proposalId);
+
+        vm.warp(block.timestamp + parameterManager.oracleChallengeWindow() + parameterManager.timelockDuration());
+        require(_tryFinalizeAndExecute(proposalId, SALT_A, txs), "finalize+execute should pass");
+        require(target.number() == 222, "target state mismatch");
         require(executor.proposalExecuted(proposalId), "proposal not marked executed");
     }
 
@@ -216,6 +269,7 @@ contract GovernanceSystemTest {
             executionHash: executionHash,
             snapshotProposalHash: keccak256(abi.encodePacked("snapshot-proposal:", proposalId)),
             snapshotSpaceHash: SNAPSHOT_SPACE_HASH,
+            snapshotConfigHash: SNAPSHOT_CONFIG_HASH,
             snapshotBlock: proposal.snapshotBlock,
             forVotes: 500_000 ether,
             againstVotes: 80_000 ether,
@@ -359,6 +413,44 @@ contract GovernanceSystemTest {
         require(executor.oracleAdapter() == address(replacement), "oracle not updated");
     }
 
+    function testEmergencyGuardianCanBeRemovedByGovernanceExecution() public {
+        require(executor.emergencyGuardian() == address(this), "unexpected initial guardian");
+
+        (bool directOk,) =
+            address(executor).call(abi.encodeCall(IGovernanceExecutor.removeEmergencyGuardian, ()));
+        require(!directOk, "direct guardian removal should fail");
+
+        uint256 proposalId = stakeManager.proposalCount() + 1;
+        IGovernanceExecutor.Transaction[] memory txs = new IGovernanceExecutor.Transaction[](1);
+        txs[0] = IGovernanceExecutor.Transaction({
+            target: address(executor),
+            value: 0,
+            data: abi.encodeWithSelector(IGovernanceExecutor.removeEmergencyGuardian.selector)
+        });
+
+        bytes32 guardianRemoveSalt = keccak256("guardian-remove");
+        bytes32 executionHash = executor.computeExecutionHash(proposalId, guardianRemoveSalt, txs);
+
+        vm.prank(ALICE);
+        stakeManager.registerProposal(
+            executionHash,
+            uint64(block.timestamp),
+            uint64(block.timestamp + 1 days),
+            IStakeManager.ProposalType.Standard,
+            address(0),
+            0
+        );
+
+        _settlePassedProposal(proposalId, executionHash, IStakeManager.ProposalType.Standard, 560_000 ether, 60_000 ether, 10_000 ether);
+
+        vm.warp(block.timestamp + parameterManager.timelockDuration() + parameterManager.highImpactTimelockDuration());
+        require(_tryExecute(proposalId, guardianRemoveSalt, txs), "governance guardian removal failed");
+        require(executor.emergencyGuardian() == address(0), "guardian not removed");
+
+        (bool pauseOk,) = address(executor).call(abi.encodeCall(IGovernanceExecutor.triggerEmergencyPause, (1 hours)));
+        require(!pauseOk, "removed guardian should not pause");
+    }
+
     function testOracleRejectsSnapshotBindingMismatch() public {
         uint256 proposalId = stakeManager.proposalCount() + 1;
 
@@ -390,6 +482,7 @@ contract GovernanceSystemTest {
             executionHash: executionHash,
             snapshotProposalHash: keccak256(abi.encodePacked("snapshot-proposal:", proposalId)),
             snapshotSpaceHash: SNAPSHOT_SPACE_HASH,
+            snapshotConfigHash: SNAPSHOT_CONFIG_HASH,
             snapshotBlock: proposal.snapshotBlock + 1,
             forVotes: 500_000 ether,
             againstVotes: 80_000 ether,
@@ -404,6 +497,54 @@ contract GovernanceSystemTest {
 
         (bool ok,) = address(oracleAdapter).call(abi.encodeCall(IOracleAdapter.proposeResult, (result)));
         require(!ok, "mismatched snapshot block should fail");
+    }
+
+    function testOracleRejectsSnapshotConfigHashMismatch() public {
+        uint256 proposalId = stakeManager.proposalCount() + 1;
+
+        IGovernanceExecutor.Transaction[] memory txs = new IGovernanceExecutor.Transaction[](1);
+        txs[0] = IGovernanceExecutor.Transaction({
+            target: address(target),
+            value: 0,
+            data: abi.encodeWithSelector(MockTarget.setNumber.selector, 56, bytes32("config-mismatch"))
+        });
+
+        bytes32 executionHash = executor.computeExecutionHash(proposalId, SALT_A, txs);
+
+        vm.prank(ALICE);
+        stakeManager.registerProposalWithSnapshot(
+            executionHash,
+            uint64(block.timestamp),
+            uint64(block.timestamp + 1 days),
+            uint64(block.number),
+            IStakeManager.ProposalType.Standard,
+            address(0),
+            0
+        );
+
+        IStakeManager.ProposalView memory proposal = stakeManager.getProposal(proposalId);
+        vm.warp(proposal.voteEnd);
+
+        IOracleAdapter.SnapshotResult memory result = IOracleAdapter.SnapshotResult({
+            proposalId: proposalId,
+            executionHash: executionHash,
+            snapshotProposalHash: keccak256(abi.encodePacked("snapshot-proposal:", proposalId)),
+            snapshotSpaceHash: SNAPSHOT_SPACE_HASH,
+            snapshotConfigHash: keccak256("wrong-config-hash"),
+            snapshotBlock: proposal.snapshotBlock,
+            forVotes: 500_000 ether,
+            againstVotes: 80_000 ether,
+            abstainVotes: 10_000 ether,
+            totalStakedAtSnapshot: uint128(stakeManager.totalStakedAt(proposal.snapshotBlock)),
+            passed: true,
+            metadataHash: _metadataHash(proposalId, proposal.snapshotBlock, executionHash)
+        });
+
+        bytes32 resultHash = oracleAdapter.hashSnapshotResult(result);
+        oracleAdapter.submitResultHash(proposalId, resultHash);
+
+        (bool ok,) = address(oracleAdapter).call(abi.encodeCall(IOracleAdapter.proposeResult, (result)));
+        require(!ok, "mismatched snapshot config hash should fail");
     }
 
     function testAttestationThresholdFallbackFinalization() public {
@@ -436,6 +577,7 @@ contract GovernanceSystemTest {
             executionHash: executionHash,
             snapshotProposalHash: keccak256(abi.encodePacked("snapshot-proposal:", proposalId)),
             snapshotSpaceHash: SNAPSHOT_SPACE_HASH,
+            snapshotConfigHash: SNAPSHOT_CONFIG_HASH,
             snapshotBlock: proposal.snapshotBlock,
             forVotes: 600_000 ether,
             againstVotes: 80_000 ether,
@@ -523,6 +665,7 @@ contract GovernanceSystemTest {
             executionHash: executionHash,
             snapshotProposalHash: keccak256(abi.encodePacked("snapshot-proposal:", proposalId)),
             snapshotSpaceHash: SNAPSHOT_SPACE_HASH,
+            snapshotConfigHash: SNAPSHOT_CONFIG_HASH,
             snapshotBlock: proposal.snapshotBlock,
             forVotes: 100_000 ether,
             againstVotes: 600_000 ether,
@@ -560,6 +703,7 @@ contract GovernanceSystemTest {
             executionHash: executionHash,
             snapshotProposalHash: keccak256(abi.encodePacked("snapshot-proposal:", proposalId)),
             snapshotSpaceHash: SNAPSHOT_SPACE_HASH,
+            snapshotConfigHash: SNAPSHOT_CONFIG_HASH,
             snapshotBlock: proposal.snapshotBlock,
             forVotes: forVotes,
             againstVotes: againstVotes,
@@ -583,6 +727,14 @@ contract GovernanceSystemTest {
         returns (bool ok)
     {
         (ok,) = address(executor).call(abi.encodeCall(IGovernanceExecutor.executeBundle, (proposalId, salt, txs)));
+    }
+
+    function _tryFinalizeAndExecute(uint256 proposalId, bytes32 salt, IGovernanceExecutor.Transaction[] memory txs)
+        internal
+        returns (bool ok)
+    {
+        (ok,) =
+            address(executor).call(abi.encodeCall(IGovernanceExecutor.finalizeAndExecuteBundle, (proposalId, salt, txs)));
     }
 
     function _metadataHash(uint256 proposalId, uint64 snapshotBlock, bytes32 executionHash)

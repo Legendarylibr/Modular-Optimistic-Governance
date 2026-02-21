@@ -3,3 +3,10 @@ out/
 broadcast/
 .env
 .DS_Store
+agent/state/*.json
+agent/state/*.log
+agent/state/**/*.json
+agent/state/**/*.log
+agent/.env
+agent/policy.json
+snapshot/governance.manifest.json

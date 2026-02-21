@@ -35,6 +35,7 @@ contract SafeModuleForkTest {
 
     bytes32 internal constant SALT = keccak256("safe-module-fork");
     bytes32 internal constant SNAPSHOT_SPACE_HASH = keccak256("dao.snapshot.eth");
+    bytes32 internal constant SNAPSHOT_CONFIG_HASH = keccak256("snapshot-config:v1");
 
     bool internal configured;
     uint256 internal safeOwnerPk;
@@ -91,7 +92,8 @@ contract SafeModuleForkTest {
             address(safe),
             address(0),
             address(0x000000000000000000000000000000000000dEaD),
-            SNAPSHOT_SPACE_HASH
+            SNAPSHOT_SPACE_HASH,
+            SNAPSHOT_CONFIG_HASH
         );
         stakeManager = new StakeManager(safeOwner, address(token), address(parameterManager));
         address[] memory initialAttesters = new address[](1);
@@ -214,6 +216,7 @@ contract SafeModuleForkTest {
             executionHash: executionHash,
             snapshotProposalHash: keccak256(abi.encodePacked("snapshot-proposal:", proposalId)),
             snapshotSpaceHash: SNAPSHOT_SPACE_HASH,
+            snapshotConfigHash: SNAPSHOT_CONFIG_HASH,
             snapshotBlock: proposal.snapshotBlock,
             forVotes: forVotes,
             againstVotes: againstVotes,

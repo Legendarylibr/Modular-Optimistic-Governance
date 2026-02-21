@@ -7,6 +7,7 @@ interface IOracleAdapter {
         bytes32 executionHash;
         bytes32 snapshotProposalHash;
         bytes32 snapshotSpaceHash;
+        bytes32 snapshotConfigHash;
         uint64 snapshotBlock;
         uint128 forVotes;
         uint128 againstVotes;

@@ -1,0 +1,44 @@
+services:
+  governance-agent:
+    build:
+      context: ..
+      dockerfile: agent/Dockerfile
+    container_name: governance-agent
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      GOV_AGENT_POLICY_PATH: /app/agent/policy.json
+      GOV_AGENT_STATE_PATH: /app/agent/state/agent-state.json
+      GOV_AGENT_HEALTH_MAX_AGE_SECONDS: 240
+    volumes:
+      - ./policy.json:/app/agent/policy.json:ro
+      - ./state:/app/agent/state
+    healthcheck:
+      test: ["CMD", "node", "/app/agent/healthcheck.mjs"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  governance-agent-manager:
+    build:
+      context: ..
+      dockerfile: agent/Dockerfile
+    container_name: governance-agent-manager
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      GOV_AGENT_MANAGER_HOST: 0.0.0.0
+      GOV_AGENT_MANAGER_PORT: 8787
+      GOV_AGENT_MANAGER_ALLOW_REMOTE: "1"
+      GOV_AGENT_MANAGER_DB_PATH: /app/agent/state/manager-agents.json
+      GOV_AGENT_MANAGER_INSTANCES_DIR: /app/agent/state/instances
+      GOV_AGENT_MANAGER_DEFAULT_POLICY_PATH: /app/agent/policy.json
+    volumes:
+      - ./policy.json:/app/agent/policy.json:ro
+      - ./state:/app/agent/state
+    command: ["node", "/app/agent/manager_api.mjs"]
+    ports:
+      - "127.0.0.1:8787:8787"

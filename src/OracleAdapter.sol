@@ -18,6 +18,7 @@ contract OracleAdapter is IOracleAdapter {
     error InvalidExecutionHash();
     error InvalidOutcome();
     error InvalidSnapshotSpace();
+    error InvalidSnapshotConfig();
     error InvalidMetadataSchema();
     error ChallengeWindowExpired();
     error ChallengeWindowOpen();
@@ -35,9 +36,8 @@ contract OracleAdapter is IOracleAdapter {
 
     uint16 internal constant BPS_DENOMINATOR = 10_000;
 
-    bytes32 internal constant SNAPSHOT_RESULT_TYPEHASH = keccak256(
-        "SnapshotResult(address oracle,uint256 chainId,uint256 proposalId,bytes32 executionHash,bytes32 snapshotProposalHash,bytes32 snapshotSpaceHash,uint64 snapshotBlock,uint128 forVotes,uint128 againstVotes,uint128 abstainVotes,uint128 totalStakedAtSnapshot,bool passed,bytes32 metadataHash)"
-    );
+    bytes32 internal constant SNAPSHOT_RESULT_TYPEHASH =
+        keccak256("SnapshotResultV2(address oracle,uint256 chainId,bytes32 payloadHash)");
 
     IStakeManager public immutable stakeMgr;
     IParameterManager public immutable params;
@@ -169,24 +169,8 @@ contract OracleAdapter is IOracleAdapter {
     }
 
     function hashSnapshotResult(SnapshotResult calldata result) public view override returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                SNAPSHOT_RESULT_TYPEHASH,
-                address(this),
-                block.chainid,
-                result.proposalId,
-                result.executionHash,
-                result.snapshotProposalHash,
-                result.snapshotSpaceHash,
-                result.snapshotBlock,
-                result.forVotes,
-                result.againstVotes,
-                result.abstainVotes,
-                result.totalStakedAtSnapshot,
-                result.passed,
-                result.metadataHash
-            )
-        );
+        bytes32 payloadHash = _hashSnapshotPayload(result);
+        return keccak256(abi.encode(SNAPSHOT_RESULT_TYPEHASH, address(this), block.chainid, payloadHash));
     }
 
     function submitResultHash(uint256 proposalId, bytes32 resultHash) external override {
@@ -215,10 +199,38 @@ contract OracleAdapter is IOracleAdapter {
 
         IStakeManager.ProposalView memory proposal = stakeMgr.getProposal(result.proposalId);
         if (block.timestamp < proposal.voteEnd) revert ProposalVoteNotEnded();
+        _validateSnapshotResultBinding(result, proposal);
+
+        bool computedPassed = _computePassed(proposal.proposalType, result);
+        if (computedPassed != result.passed) revert InvalidOutcome();
+
+        settlement.executionHash = result.executionHash;
+        settlement.passed = result.passed;
+        settlement.proposedAt = uint64(block.timestamp);
+        settlement.proposalType = uint8(proposal.proposalType);
+        settlement.proposer = msg.sender;
+
+        emit ResultProposed(
+            result.proposalId,
+            settlement.submittedHash,
+            msg.sender,
+            result.passed,
+            result.forVotes,
+            result.againstVotes,
+            result.abstainVotes,
+            result.totalStakedAtSnapshot
+        );
+    }
+
+    function _validateSnapshotResultBinding(SnapshotResult calldata result, IStakeManager.ProposalView memory proposal)
+        internal
+        view
+    {
         if (result.executionHash != proposal.executionHash) revert InvalidExecutionHash();
         if (result.snapshotBlock != proposal.snapshotBlock) revert InvalidSnapshotBlock();
         if (result.snapshotProposalHash == bytes32(0)) revert InvalidMetadataSchema();
         if (result.snapshotSpaceHash != params.snapshotSpaceHash()) revert InvalidSnapshotSpace();
+        if (result.snapshotConfigHash != params.snapshotConfigHash()) revert InvalidSnapshotConfig();
 
         bytes32 expectedMetadataHash = keccak256(
             abi.encode(
@@ -243,26 +255,6 @@ contract OracleAdapter is IOracleAdapter {
         if (proposal.proposalType == IStakeManager.ProposalType.SlashExecution) {
             if (!stakeMgr.isFrozenAt(proposal.accused, result.snapshotBlock)) revert SlashAccountNotFrozenAtSnapshot();
         }
-
-        bool computedPassed = _computePassed(proposal.proposalType, result);
-        if (computedPassed != result.passed) revert InvalidOutcome();
-
-        settlement.executionHash = result.executionHash;
-        settlement.passed = result.passed;
-        settlement.proposedAt = uint64(block.timestamp);
-        settlement.proposalType = uint8(proposal.proposalType);
-        settlement.proposer = msg.sender;
-
-        emit ResultProposed(
-            result.proposalId,
-            settlement.submittedHash,
-            msg.sender,
-            result.passed,
-            result.forVotes,
-            result.againstVotes,
-            result.abstainVotes,
-            result.totalStakedAtSnapshot
-        );
     }
 
     function attestResult(uint256 proposalId) external override onlyAttester {
@@ -316,18 +308,22 @@ contract OracleAdapter is IOracleAdapter {
         if (settlement.challenged) revert ChallengedResult();
 
         uint64 challengeWindow = params.oracleChallengeWindow();
-        if (block.timestamp < uint256(settlement.proposedAt) + challengeWindow) revert ChallengeWindowOpen();
+        uint256 challengeEnd = uint256(settlement.proposedAt) + challengeWindow;
+        if (block.timestamp < challengeEnd) revert ChallengeWindowOpen();
 
         bool thresholdMet = settlement.attestationCount >= attesterThreshold;
-        bool fallbackReached =
-            block.timestamp >= uint256(settlement.proposedAt) + challengeWindow + fallbackFinalizationDelay;
-        if (!thresholdMet && !fallbackReached) revert AttestationThresholdNotReached();
+        uint256 finalizedAt = challengeEnd;
+        if (!thresholdMet) {
+            uint256 fallbackFinalizationTime = challengeEnd + fallbackFinalizationDelay;
+            if (block.timestamp < fallbackFinalizationTime) revert AttestationThresholdNotReached();
+            finalizedAt = fallbackFinalizationTime;
+        }
 
         settlement.finalized = true;
-        settlement.finalizedAt = uint64(block.timestamp);
+        settlement.finalizedAt = uint64(finalizedAt);
         stakeMgr.settleProposalBond(proposalId, settlement.passed);
 
-        emit ResultFinalized(proposalId, settlement.executionHash, settlement.passed, uint64(block.timestamp));
+        emit ResultFinalized(proposalId, settlement.executionHash, settlement.passed, uint64(finalizedAt));
     }
 
     function getSettlement(uint256 proposalId) external view override returns (SettlementView memory) {
@@ -369,5 +365,24 @@ contract OracleAdapter is IOracleAdapter {
 
         bool supportReached = (uint256(result.forVotes) * BPS_DENOMINATOR) >= (decisiveVotes * majorityTarget);
         return supportReached;
+    }
+
+    function _hashSnapshotPayload(SnapshotResult calldata result) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                result.proposalId,
+                result.executionHash,
+                result.snapshotProposalHash,
+                result.snapshotSpaceHash,
+                result.snapshotConfigHash,
+                result.snapshotBlock,
+                result.forVotes,
+                result.againstVotes,
+                result.abstainVotes,
+                result.totalStakedAtSnapshot,
+                result.passed,
+                result.metadataHash
+            )
+        );
     }
 }

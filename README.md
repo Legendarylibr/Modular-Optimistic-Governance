@@ -2,6 +2,25 @@
 
 This repository implements a modular governance stack with off-chain Snapshot voting and on-chain optimistic settlement.
 
+## Safety Warning
+
+- This codebase is **unaudited**.
+- This codebase is **not production-tested**.
+- Do **not** use with real treasury funds in production without a professional security audit, formal verification/invariant testing, and staged mainnet rollout controls.
+
+## Agent-First Operations
+
+This system is designed to run with independent governance agents as the default operational model:
+- Agents monitor Snapshot proposals and build deterministic settlement payloads.
+- Agents submit/propose/challenge/finalize/execute actions under strict on-chain checks.
+- Multi-operator consensus mode can require K-of-N matching attestations before execution calls are relayed.
+- Candidate-to-standard promotion gates agent privilege escalation.
+
+Agent entry points:
+- `agent/governance_agent.mjs`
+- `agent/manager_api.mjs`
+- `agent/README.md`
+
 ## 1) Contract Architecture Overview
 
 ### Components
@@ -246,9 +265,11 @@ If upgradeability is required:
 - Build: `forge build`
 - Test (offline mode to avoid external signature lookups): `forge test --offline`
 
+Warning: local tests passing does **not** mean production safety. This repository is unaudited and should be treated as experimental infrastructure.
+
 ## Governance Agent
 
-An optional policy-driven governance agent is included at:
+Policy-driven governance agents are included at:
 - `agent/governance_agent.mjs`
 
 It automates:
